@@ -9,9 +9,10 @@ CSV and tells you which ones are worth driving out to **inspect in person**. The
 whole point is to avoid trash and only spend your time on high-confidence,
 inspectable opportunities.
 
-As of **v0.4** there is also an optional, polite collector that turns public
-Skelbiu.lt search pages into that CSV for you — see
-[The full pipeline](#the-full-pipeline-v04) below. The collector only reads
+As of **v0.5** there is also an optional, polite collector that turns public
+Skelbiu.lt search pages into that CSV for you, with a `--self-check` health
+report, new-vs-seen listing tracking, and optional Telegram alerts — see
+[The full pipeline](#the-full-pipeline-v05) below. The collector only reads
 public listing data, respects `robots.txt`, rate-limits itself, and never
 touches logins, CAPTCHAs, or personal/contact data.
 
@@ -79,27 +80,35 @@ PASS             €  34.35 ROI   34.2% | Boss DD-7 Digital Delay pedal
 5. Only inspect `PRIORITY_INSPECT` and `INSPECT` rows.
 6. **Never buy without testing the item in person.**
 
-## The full pipeline (v0.4)
+## The full pipeline (v0.5)
 
 You can let the collector build the candidate CSV for you instead of typing
-listings by hand. The pipeline is four small, independent steps:
+listings by hand. The real workflow is:
 
 ```
-collector  ->  raw_listings.csv  ->  enrichment  ->  candidate_listings.csv  ->  scanner  ->  scan_results.csv  ->  notifier
+collect -> self-check -> enrich -> comp review -> fill SOLD comps -> scan -> alert
 ```
 
 ```bash
-# 1. Collect public Skelbiu.lt search results listed in sources.json
+# 1. Collect public Skelbiu.lt search results listed in sources.json.
+#    Remembers seen URLs in .seen_listings.json so only NEW listings alert later.
 python3 collectors/skelbiu_collector.py --sources sources.json --output raw_listings.csv
 
-# 2. Classify + clean into a scanner-ready CSV (drops broken/repair listings)
+# 1b. Sanity-check the live pages BEFORE trusting the data: card counts + coverage.
+python3 collectors/skelbiu_collector.py --sources sources.json --self-check
+
+# 2. Classify + clean into a scanner-ready CSV (drops broken/repair listings).
+#    Also writes comp_review_queue.csv: a worklist of promising local listings.
 python3 enrich_candidates.py raw_listings.csv --output candidate_listings.csv
 
-# 3. Open candidate_listings.csv and fill comp_low_eur / comp_median_eur
-#    from eBay SOLD comps (see the warning below), then score:
+# 3. Open comp_review_queue.csv. For each promising row, follow
+#    suggested_ebay_sold_search (eBay SOLD/Completed filter) and copy
+#    conservative comp_low_eur / comp_median_eur into candidate_listings.csv.
+
+# 4. Score with your sold comps filled in.
 python3 listing_scanner.py candidate_listings.csv --config config.json --output scan_results.csv
 
-# 4. Print alerts for the INSPECT / PRIORITY_INSPECT rows
+# 5. Alert on the INSPECT / PRIORITY_INSPECT rows (new listings only).
 python3 notifier.py scan_results.csv
 ```
 
@@ -111,24 +120,49 @@ sold-comp numbers and will (correctly) reject everything until you add them.
 - **`collectors/skelbiu_collector.py`** — reads search URLs from `sources.json`,
   fetches each *public* page, and extracts `source, url, search_name, title,
   description, location, asking_price_eur, posted_at, image URLs, collected_at`.
-  It de-duplicates by URL across runs, so the same listing is never written
-  twice. It is **stdlib-only** (no `requests`/`bs4` to install).
+  De-duplicates by URL across runs, and records every URL in
+  `.seen_listings.json`, classifying each run's listings as **new**, **seen**, or
+  **removed** — only *new* ones are alert-eligible. Stdlib-only (no
+  `requests`/`bs4`).
+  - **`--self-check`** fetches each source live and reports HTTP status, number
+    of listing cards, and how many have a title / price / location / URL. It
+    warns (and exits non-zero) if a page yields zero cards or if most cards are
+    missing a price/title — your early signal that Skelbiu changed its markup.
 - **`enrich_candidates.py`** — classifies each item as `lens` / `music_gear` /
-  `lego_collectible` / `general`, rejects obvious broken/repair listings early
-  using the same Lithuanian keyword list as the scanner, sets
-  `can_inspect_in_person = yes` only for allowed pickup cities (Vilnius/Kaunas),
-  estimates `photo_quality` from the number of images, and writes a CSV whose
-  columns exactly match `input_template.csv`.
+  `lego_collectible` / `general`, rejects broken/repair listings early using the
+  same Lithuanian keyword list as the scanner, sets `can_inspect_in_person = yes`
+  only for allowed pickup cities (Vilnius/Kaunas), estimates `photo_quality`,
+  makes a **conservative `model_guess`** (or `Unknown` — never overclaims), and
+  writes two files: `candidate_listings.csv` (columns identical to
+  `input_template.csv`) and `comp_review_queue.csv`.
+- **`comp_review_queue.csv`** — your research worklist: `source, url, title,
+  location, asking_price_eur, category, model_guess, suggested_ebay_sold_search`
+  plus blank `comp_low_eur, comp_median_eur, liquidity_sold_count` to fill in.
+  The suggested search is a ready eBay link pre-filtered to **SOLD/Completed**
+  items, because asking prices are not comps.
 - **`listing_scanner.py`** — the existing decision engine (unchanged rules).
-- **`notifier.py`** — prints alert lines for `INSPECT` / `PRIORITY_INSPECT`
-  rows only, strongest first. It is a scaffold: it has clearly marked TODO stubs
-  for Telegram / Discord webhooks but needs no credentials to run today.
+- **`notifier.py`** — alerts on `INSPECT` / `PRIORITY_INSPECT` rows only,
+  strongest first. Always prints to the console; **also sends to Telegram** when
+  `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set (otherwise console-only).
+  By default it alerts on **new listings only** (via `.seen_listings.json`); use
+  `--ignore-seen` to alert on everything.
+
+### Telegram alerts (optional)
+
+```bash
+export TELEGRAM_BOT_TOKEN=123456:abcdef   # from @BotFather
+export TELEGRAM_CHAT_ID=987654321         # your chat/channel id
+python3 notifier.py scan_results.csv
+```
+
+If the variables are missing, the notifier falls back to console output. Keep
+secrets in environment variables; never commit them.
 
 ### `sources.json`
 
 ```json
 {
-  "user_agent": "LTFlipScanner/0.4 (+https://github.com/<you>/LTflip; validation bot; respects robots.txt)",
+  "user_agent": "LTFlipScanner/0.5 (+https://github.com/<you>/LTflip; validation bot; respects robots.txt)",
   "request_delay_seconds": 2.0,
   "cache_ttl_minutes": 360,
   "max_pages_per_source": 1,
@@ -140,7 +174,8 @@ sold-comp numbers and will (correctly) reject everything until you add them.
 
 - `request_delay_seconds` — minimum gap between network requests (be polite).
 - `cache_ttl_minutes` — fetched pages are cached in `.cache/` and reused within
-  this window, so re-runs don't re-hit the site.
+  this window, so re-runs don't re-hit the site. (`--self-check` always fetches
+  live and ignores the cache.)
 - `max_pages_per_source` — keep this small; pagination is best-effort.
 - A source `url` may also be a local file path, which the collector reads
   directly (no network). This is how the tests and offline demos work.

@@ -6,6 +6,8 @@ __pycache__/
 scan_results.csv
 raw_listings.csv
 candidate_listings.csv
+comp_review_queue.csv
 
-# Collector page cache
+# Collector page cache + saved-state
 .cache/
+.seen_listings.json

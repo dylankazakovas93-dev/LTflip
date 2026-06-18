@@ -7,19 +7,24 @@ from pathlib import Path
 
 import pytest
 
+import seen_state
 from collectors.skelbiu_collector import (
+    analyze_cards,
     dedupe_by_url,
     parse_listings,
     parse_price_eur,
 )
 from enrich_candidates import (
+    REVIEW_FIELDS,
     TEMPLATE_FIELDS,
+    build_sold_search,
     detect_category,
     enrich_rows,
+    guess_model,
     photo_quality_from_images,
 )
 from listing_scanner import load_config, scan_row
-from notifier import build_alerts
+from notifier import build_alerts, build_telegram_payload, telegram_api_url
 
 FIXTURE = Path(__file__).parent / "tests" / "fixtures" / "skelbiu_search_sample.html"
 BASE_URL = "https://www.skelbiu.lt/skelbimai/"
@@ -96,7 +101,7 @@ def test_photo_quality_from_images():
 def test_enrichment_rejects_broken_keywords():
     config = load_config(None)
     rows = parse_fixture()
-    candidates, skipped = enrich_rows(rows, config)
+    candidates, skipped, _ = enrich_rows(rows, config)
 
     titles = [c["title"] for c in candidates]
     # The Sigma listing says "Neveikia ... remontui ... dalimis" -> rejected early.
@@ -108,7 +113,7 @@ def test_enrichment_rejects_broken_keywords():
 def test_enrichment_sets_inspect_flag_by_location():
     config = load_config(None)
     rows = parse_fixture()
-    candidates, _ = enrich_rows(rows, config)
+    candidates, _, _ = enrich_rows(rows, config)
     by_title = {c["title"]: c for c in candidates}
 
     canon = next(c for t, c in by_title.items() if "Canon" in t)
@@ -126,7 +131,7 @@ def test_enrichment_sets_inspect_flag_by_location():
 def test_candidate_rows_are_scanner_compatible():
     config = load_config(None)
     rows = parse_fixture()
-    candidates, _ = enrich_rows(rows, config)
+    candidates, _, _ = enrich_rows(rows, config)
     assert candidates, "expected at least one candidate"
 
     canon = next(c for c in candidates if "Canon" in c["title"])
@@ -169,3 +174,116 @@ def test_notifier_only_inspect_and_priority():
     # Strongest (PRIORITY_INSPECT) is listed first.
     assert "PriorityLens" in messages[0]
     assert "PRIORITY_INSPECT" in messages[0]
+
+
+# === v0.5: self-check, seen-state, telegram, model_guess, comp review ======
+
+# --- Self-check: detect zero cards / coverage ------------------------------
+
+def test_self_check_detects_zero_cards():
+    report = analyze_cards("<html><body><p>no listings here</p></body></html>")
+    assert report["cards"] == 0
+    assert any("no listing cards" in w for w in report["warnings"])
+
+
+def test_self_check_reports_full_coverage_on_fixture():
+    html = FIXTURE.read_text(encoding="utf-8")
+    report = analyze_cards(html)
+    assert report["cards"] == 5
+    assert report["with_title"] == 5
+    assert report["with_price"] == 5
+    assert report["with_url"] == 5
+    assert report["warnings"] == []
+
+
+# --- Seen-state: new detection + suppress repeats --------------------------
+
+def test_seen_state_detects_new_listings():
+    state = {"listings": {}, "last_run": {}}
+    new, seen, removed = seen_state.diff_and_update(state, ["a", "b"], now="2026-06-18T00:00:00")
+    assert new == ["a", "b"]
+    assert seen == [] and removed == []
+    assert set(state["listings"]) == {"a", "b"}
+    assert seen_state.new_urls(state) == {"a", "b"}
+
+
+def test_seen_state_suppresses_repeat_then_flags_removed():
+    state = {"listings": {}, "last_run": {}}
+    seen_state.diff_and_update(state, ["a", "b"], now="2026-06-18T00:00:00")
+
+    # Second run: 'a' still listed, 'b' gone, 'c' is brand new.
+    new, seen, removed = seen_state.diff_and_update(state, ["a", "c"], now="2026-06-18T01:00:00")
+    assert new == ["c"]
+    assert seen == ["a"]
+    assert removed == ["b"]
+    assert seen_state.new_urls(state) == {"c"}
+
+
+def test_notifier_suppresses_already_seen_listings():
+    rows = [
+        {"decision": "INSPECT", "title": "FreshDeal", "net_profit_eur": "130",
+         "net_roi_pct": "71", "url": "u-new"},
+        {"decision": "INSPECT", "title": "OldDeal", "net_profit_eur": "150",
+         "net_roi_pct": "80", "url": "u-old"},
+    ]
+    # Only u-new is "new" since the last collect run.
+    messages = build_alerts(rows, new_urls={"u-new"})
+    joined = "\n".join(messages)
+    assert len(messages) == 1
+    assert "FreshDeal" in joined and "OldDeal" not in joined
+
+
+# --- Telegram: formatting only, no network ---------------------------------
+
+def test_telegram_message_formatting_without_sending():
+    payload = build_telegram_payload("hello world", "12345")
+    assert payload["chat_id"] == "12345"
+    assert payload["text"] == "hello world"
+
+    url = telegram_api_url("BOT:TOKEN")
+    assert url == "https://api.telegram.org/botBOT:TOKEN/sendMessage"
+
+
+# --- model_guess: conservative, does not overclaim -------------------------
+
+def test_model_guess_known_models():
+    assert guess_model("Canon EF 85mm f/1.8 USM objektyvas", "lens") == "Canon EF 85mm f/1.8 USM"
+    assert guess_model("Sigma 17-50 f2.8 Canon objektyvas", "lens") == "Sigma 17-50mm f/2.8 Canon"
+    assert guess_model("Boss DD-7 Digital Delay pedalas", "music_gear") == "Boss DD-7"
+
+
+def test_model_guess_returns_unknown_when_unsure():
+    assert guess_model("nieko bendro daiktas", "general") == "Unknown"
+    assert guess_model("LEGO Star Wars UCS sealed dėžutė", "lego_collectible") == "Unknown"
+    assert guess_model("", "lens") == "Unknown"
+
+
+# --- comp_review_queue generation ------------------------------------------
+
+def test_comp_review_queue_is_generated():
+    config = load_config(None)
+    rows = parse_fixture()
+    _, _, review = enrich_rows(rows, config)
+
+    by_title = {r["title"]: r for r in review}
+    # Vilnius, target categories, real prices -> Canon + Boss are queued.
+    assert any("Canon" in t for t in by_title)
+    assert any("Boss" in t for t in by_title)
+    # Klaipėda LEGO is not locally inspectable -> excluded.
+    assert not any("LEGO" in t for t in by_title)
+    # Broken Sigma was rejected upstream -> excluded.
+    assert not any("Sigma" in t for t in by_title)
+
+    canon = next(r for t, r in by_title.items() if "Canon" in t)
+    assert list(canon.keys()) == REVIEW_FIELDS
+    assert canon["source"] == "Skelbiu"
+    assert canon["model_guess"] == "Canon EF 85mm f/1.8 USM"
+    assert canon["comp_low_eur"] == "" and canon["comp_median_eur"] == ""
+    assert "LH_Sold=1" in canon["suggested_ebay_sold_search"]
+    assert "ebay.com" in canon["suggested_ebay_sold_search"]
+
+
+def test_build_sold_search_uses_sold_filter():
+    url = build_sold_search("Unknown", "Sony FE 50mm objektyvas")
+    assert "LH_Sold=1" in url and "LH_Complete=1" in url
+    assert "objektyvas" not in url   # stopword dropped from fallback query
