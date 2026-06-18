@@ -1,0 +1,4 @@
+url,category,title,description,location,asking_price_eur,expected_resale_eur,comp_low_eur,comp_median_eur,liquidity_sold_count,platform_fee_pct,risk_reserve_pct,buy_transport_cost_eur,resale_shipping_cost_eur,packaging_cost_eur,misc_cost_eur,can_inspect_in_person,photo_quality
+https://example.com/listing1,lens,Canon EF 85mm f/1.8 USM objektyvas,"Geros būklės, veikia puikiai, galima išbandyti vietoje, su dėžute.",Vilnius,120,,360,390,8,0.13,0.10,5,18,4,0,yes,good
+https://example.com/listing2,lens,Sigma 17-50 f2.8 Canon defektas,"Neveikia autofokusas, remontui.",Kaunas,60,,190,210,5,0.13,0.10,10,18,4,0,yes,good
+https://example.com/listing3,music_gear,Boss DD-7 Digital Delay pedal,"Pilnai veikiantis, galima išbandyti, naudotas namuose.",Vilnius,65,,155,175,12,0.13,0.10,3,14,3,0,yes,good

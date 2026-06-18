@@ -1,0 +1,6 @@
+# The scanner itself uses only the Python 3 standard library — nothing to
+# install to run it.
+#
+# This package is only needed to run the test suite:
+#     pytest -q
+pytest>=7.0
