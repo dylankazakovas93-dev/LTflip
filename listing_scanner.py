@@ -53,6 +53,12 @@ DEFAULT_CONFIG = {
     "risk_reserve_pct_default": 0.10,
     "min_liquidity_sold_count": 3,
     "prefer_local_pickup_only": True,
+    # --- v0.6 research-alert tuning (used by notifier.py --mode research) ---
+    "min_research_alert_score": 3.0,
+    "max_research_alerts_per_run": 10,
+    "allowed_research_categories": ["lens", "music_gear", "lego_collectible"],
+    "min_asking_price_eur": 10.0,
+    "max_asking_price_eur": 1000.0,
     "reject_keywords_lt": [
         "neveikia", "neveikiantis", "neveikianti", "sugedęs", "sugedusi",
         "defektas", "defektuotas", "remontui", "dalimis", "reikia taisyti",

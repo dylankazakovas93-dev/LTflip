@@ -9,12 +9,13 @@ CSV and tells you which ones are worth driving out to **inspect in person**. The
 whole point is to avoid trash and only spend your time on high-confidence,
 inspectable opportunities.
 
-As of **v0.5** there is also an optional, polite collector that turns public
+As of **v0.6** there is also an optional, polite collector that turns public
 Skelbiu.lt search pages into that CSV for you, with a `--self-check` health
-report, new-vs-seen listing tracking, and optional Telegram alerts — see
-[The full pipeline](#the-full-pipeline-v05) below. The collector only reads
-public listing data, respects `robots.txt`, rate-limits itself, and never
-touches logins, CAPTCHAs, or personal/contact data.
+report, new-vs-seen listing tracking, two-stage (research + action) alerts, and
+optional Telegram delivery — see [The full pipeline](#the-full-pipeline-v06)
+below. The collector only reads public listing data, respects `robots.txt`,
+rate-limits itself, and never touches logins, CAPTCHAs, or personal/contact
+data.
 
 ## The rules it enforces
 
@@ -80,13 +81,15 @@ PASS             €  34.35 ROI   34.2% | Boss DD-7 Digital Delay pedal
 5. Only inspect `PRIORITY_INSPECT` and `INSPECT` rows.
 6. **Never buy without testing the item in person.**
 
-## The full pipeline (v0.5)
+## The full pipeline (v0.6)
 
 You can let the collector build the candidate CSV for you instead of typing
-listings by hand. The real workflow is:
+listings by hand. Flips are time-sensitive, so there are **two alert stages**: a
+*research* alert the moment a promising listing appears (before you've done any
+comp work), and an *action* alert once it actually passes the scanner.
 
 ```
-collect -> self-check -> enrich -> comp review -> fill SOLD comps -> scan -> alert
+collect -> enrich -> RESEARCH alert -> fill SOLD comps -> scan -> ACTION alert
 ```
 
 ```bash
@@ -97,23 +100,30 @@ python3 collectors/skelbiu_collector.py --sources sources.json --output raw_list
 # 1b. Sanity-check the live pages BEFORE trusting the data: card counts + coverage.
 python3 collectors/skelbiu_collector.py --sources sources.json --self-check
 
-# 2. Classify + clean into a scanner-ready CSV (drops broken/repair listings).
-#    Also writes comp_review_queue.csv: a worklist of promising local listings.
+# 2. Classify + clean. Writes candidate_listings.csv (scanner-ready) and
+#    comp_review_queue.csv (promising local listings that still need comps).
 python3 enrich_candidates.py raw_listings.csv --output candidate_listings.csv
 
-# 3. Open comp_review_queue.csv. For each promising row, follow
-#    suggested_ebay_sold_search (eBay SOLD/Completed filter) and copy
-#    conservative comp_low_eur / comp_median_eur into candidate_listings.csv.
+# 3. RESEARCH alert: get pinged about promising NEW listings to research now.
+python3 notifier.py --mode research --review-queue comp_review_queue.csv
 
-# 4. Score with your sold comps filled in.
+# 4. Open comp_review_queue.csv. For each row, follow suggested_ebay_sold_search
+#    (eBay SOLD/Completed filter) and copy conservative comp_low_eur /
+#    comp_median_eur into candidate_listings.csv.
+
+# 5. Score with your sold comps filled in.
 python3 listing_scanner.py candidate_listings.csv --config config.json --output scan_results.csv
 
-# 5. Alert on the INSPECT / PRIORITY_INSPECT rows (new listings only).
-python3 notifier.py scan_results.csv
+# 6. ACTION alert: the INSPECT / PRIORITY_INSPECT rows worth acting on now.
+python3 notifier.py --mode action scan_results.csv
+
+# (or run both stages at once)
+python3 notifier.py --mode both
 ```
 
 Step 2 leaves the comp columns blank on purpose — the scanner needs **your**
-sold-comp numbers and will (correctly) reject everything until you add them.
+sold-comp numbers and will (correctly) reject everything until you add them. A
+research alert is **not** a buy signal: it only says "worth researching".
 
 ### What each step does
 
@@ -136,23 +146,48 @@ sold-comp numbers and will (correctly) reject everything until you add them.
   writes two files: `candidate_listings.csv` (columns identical to
   `input_template.csv`) and `comp_review_queue.csv`.
 - **`comp_review_queue.csv`** — your research worklist: `source, url, title,
-  location, asking_price_eur, category, model_guess, suggested_ebay_sold_search`
-  plus blank `comp_low_eur, comp_median_eur, liquidity_sold_count` to fill in.
-  The suggested search is a ready eBay link pre-filtered to **SOLD/Completed**
-  items, because asking prices are not comps.
+  location, asking_price_eur, category, model_guess, photo_quality,
+  suggested_ebay_sold_search`, blank `comp_low_eur, comp_median_eur,
+  liquidity_sold_count` to fill in, and `description`. The suggested search is a
+  ready eBay link pre-filtered to **SOLD/Completed** items, because asking prices
+  are not comps.
 - **`listing_scanner.py`** — the existing decision engine (unchanged rules).
-- **`notifier.py`** — alerts on `INSPECT` / `PRIORITY_INSPECT` rows only,
-  strongest first. Always prints to the console; **also sends to Telegram** when
-  `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set (otherwise console-only).
-  By default it alerts on **new listings only** (via `.seen_listings.json`); use
-  `--ignore-seen` to alert on everything.
+- **`notifier.py`** — two alert stages (see below). Always prints to the console;
+  **also sends to Telegram** when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are
+  set (otherwise console-only).
+
+### Two-stage alerts (research vs action)
+
+| `--mode` | reads | alerts on |
+| --- | --- | --- |
+| `research` | `comp_review_queue.csv` | promising **new** listings that still need comps |
+| `action` | `scan_results.csv` | listings that pass as `INSPECT` / `PRIORITY_INSPECT` |
+| `both` | both | research first, then action |
+
+**Research** alerts are not buy signals — each one carries a *“NO BUY DECISION
+yet”* warning and a SOLD-comp search link. They are ranked by a lightweight
+pre-comp priority score: **+** local pickup (Vilnius/Kaunas), **+** target
+category, **+** an identified `model_guess`, **+** positive condition wording,
+**+** clear photos; **−** vague title, weak/no photos, missing/negotiable price;
+broken/repair listings are rejected outright. Each research listing is alerted
+once — already-alerted URLs are remembered in `.seen_listings.json` (channel
+`research`) so you are not spammed. Tunable via config:
+
+- `min_research_alert_score` — minimum score to alert (default `3.0`).
+- `max_research_alerts_per_run` — cap per run (default `10`).
+- `allowed_research_categories` — which categories qualify.
+- `min_asking_price_eur` / `max_asking_price_eur` — price band to consider.
+
+**Action** alerts use the collector's new-this-run set, so only freshly
+collected passing listings alert. Use `--ignore-seen` (either mode) to alert on
+everything.
 
 ### Telegram alerts (optional)
 
 ```bash
 export TELEGRAM_BOT_TOKEN=123456:abcdef   # from @BotFather
 export TELEGRAM_CHAT_ID=987654321         # your chat/channel id
-python3 notifier.py scan_results.csv
+python3 notifier.py --mode both
 ```
 
 If the variables are missing, the notifier falls back to console output. Keep
@@ -162,7 +197,7 @@ secrets in environment variables; never commit them.
 
 ```json
 {
-  "user_agent": "LTFlipScanner/0.5 (+https://github.com/<you>/LTflip; validation bot; respects robots.txt)",
+  "user_agent": "LTFlipScanner/0.6 (+https://github.com/<you>/LTflip; validation bot; respects robots.txt)",
   "request_delay_seconds": 2.0,
   "cache_ttl_minutes": 360,
   "max_pages_per_source": 1,

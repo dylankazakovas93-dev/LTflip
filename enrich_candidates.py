@@ -46,11 +46,12 @@ TEMPLATE_FIELDS = [
     "can_inspect_in_person", "photo_quality",
 ]
 
-# Columns for the comp research worklist.
+# Columns for the comp research worklist. (description + photo_quality let the
+# notifier's research scorer judge condition wording and photos.)
 REVIEW_FIELDS = [
     "source", "url", "title", "location", "asking_price_eur", "category",
-    "model_guess", "suggested_ebay_sold_search",
-    "comp_low_eur", "comp_median_eur", "liquidity_sold_count",
+    "model_guess", "photo_quality", "suggested_ebay_sold_search",
+    "comp_low_eur", "comp_median_eur", "liquidity_sold_count", "description",
 ]
 
 TARGET_CATEGORIES = {"lens", "music_gear", "lego_collectible"}
@@ -253,10 +254,11 @@ def enrich_rows(
         })
         candidates.append(candidate)
 
-        # Promising = locally inspectable, a target category, and a real price.
+        # Promising = locally inspectable and a target category. (Price may be
+        # missing/negotiable; the research scorer ranks those lower, it does not
+        # drop them here.)
         model = guess_model(title, category)
-        price = parse_float(row.get("asking_price_eur"), 0)
-        if can_inspect == "yes" and category in TARGET_CATEGORIES and price > 0:
+        if can_inspect == "yes" and category in TARGET_CATEGORIES:
             review.append({
                 "source": row.get("source") or "Skelbiu",
                 "url": candidate["url"],
@@ -265,10 +267,12 @@ def enrich_rows(
                 "asking_price_eur": row.get("asking_price_eur", ""),
                 "category": category,
                 "model_guess": model,
+                "photo_quality": candidate["photo_quality"],
                 "suggested_ebay_sold_search": build_sold_search(model, title, category),
                 "comp_low_eur": "",
                 "comp_median_eur": "",
                 "liquidity_sold_count": "",
+                "description": description,
             })
 
     return candidates, skipped, review

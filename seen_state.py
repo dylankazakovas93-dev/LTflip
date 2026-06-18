@@ -34,6 +34,7 @@ def load_state(path: str = DEFAULT_STATE_PATH) -> Dict[str, Any]:
             data = {}
     data.setdefault("listings", {})
     data.setdefault("last_run", {})
+    data.setdefault("alerted", {})
     return data
 
 
@@ -77,3 +78,16 @@ def save_state(state: Dict[str, Any], path: str = DEFAULT_STATE_PATH) -> None:
 def new_urls(state: Dict[str, Any]) -> Set[str]:
     """URLs that were new on the most recent collector run."""
     return set(state.get("last_run", {}).get("new_urls", []))
+
+
+def alerted_urls(state: Dict[str, Any], channel: str) -> Set[str]:
+    """URLs already alerted on for a given channel (e.g. 'research', 'action')."""
+    return set(state.get("alerted", {}).get(channel, []))
+
+
+def mark_alerted(state: Dict[str, Any], channel: str, urls: Iterable[str]) -> None:
+    """Record that ``urls`` have now been alerted on ``channel`` (idempotent)."""
+    alerted = state.setdefault("alerted", {})
+    current = set(alerted.get(channel, []))
+    current.update(u for u in urls if u)
+    alerted[channel] = sorted(current)

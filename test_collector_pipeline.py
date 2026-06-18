@@ -287,3 +287,112 @@ def test_build_sold_search_uses_sold_filter():
     url = build_sold_search("Unknown", "Sony FE 50mm objektyvas")
     assert "LH_Sold=1" in url and "LH_Complete=1" in url
     assert "objektyvas" not in url   # stopword dropped from fallback query
+
+
+# === v0.6: two-stage research + action alerts ==============================
+
+from notifier import (  # noqa: E402
+    build_research_alerts,
+    score_research_item,
+    select_research_items,
+)
+
+
+def _review_row(**kw):
+    """A strong, clean comp-review row (Vilnius lens, known model, good photos)."""
+    base = {
+        "source": "Skelbiu",
+        "url": "https://skelbiu.lt/123",
+        "title": "Canon EF 85mm f/1.8 USM objektyvas",
+        "location": "Vilnius",
+        "asking_price_eur": "120",
+        "category": "lens",
+        "model_guess": "Canon EF 85mm f/1.8 USM",
+        "photo_quality": "good",
+        "suggested_ebay_sold_search": "https://www.ebay.com/sch/i.html?_nkw=Canon+EF+85mm&LH_Sold=1&LH_Complete=1",
+        "comp_low_eur": "",
+        "comp_median_eur": "",
+        "liquidity_sold_count": "",
+        "description": "Geros būklės, veikia puikiai, galima išbandyti.",
+    }
+    base.update(kw)
+    return base
+
+
+def test_research_alert_contains_required_fields():
+    config = load_config(None)
+    messages = build_research_alerts([_review_row()], config)
+    assert len(messages) == 1
+    msg = messages[0]
+    for needle in ["RESEARCH", "Canon EF 85mm", "Skelbiu", "https://skelbiu.lt/123",
+                   "Vilnius", "120", "lens", "model_guess: Canon EF 85mm f/1.8 USM",
+                   "LH_Sold=1", "why queued", "NO BUY DECISION"]:
+        assert needle in msg, needle
+
+
+def test_research_scoring_ranks_strong_above_vague():
+    config = load_config(None)
+    strong = _review_row()
+    vague = _review_row(url="u-vague", title="Daiktas", location="Klaipėda",
+                        model_guess="Unknown", photo_quality="unknown", description="")
+    strong_score, _ = score_research_item(strong, config)
+    vague_score, _ = score_research_item(vague, config)
+    assert strong_score > vague_score
+
+    # When both qualify, the stronger one is listed first.
+    medium = _review_row(url="u-med", location="Kaunas", model_guess="Unknown",
+                         photo_quality="medium", description="")
+    selected = select_research_items([medium, strong], config)
+    assert [r["url"] for r in selected][0] == strong["url"]
+
+
+def test_research_max_alerts_per_run_is_respected():
+    config = load_config(None)
+    config["max_research_alerts_per_run"] = 2
+    rows = [_review_row(url=f"u{i}") for i in range(3)]
+    selected = select_research_items(rows, config)
+    assert len(selected) == 2
+
+
+def test_research_seen_state_suppresses_repeats():
+    config = load_config(None)
+    rows = [_review_row(url="u-old"), _review_row(url="u-new")]
+    # u-old has already been research-alerted previously.
+    messages = build_research_alerts(rows, config, already_alerted={"u-old"})
+    joined = "\n".join(messages)
+    assert "u-new" in joined
+    assert "u-old" not in joined
+
+
+def test_research_only_alerts_target_categories_and_price_range():
+    config = load_config(None)
+    out_of_range = _review_row(url="u-cheap", asking_price_eur="2")    # below min_asking_price_eur
+    wrong_cat = _review_row(url="u-phone", category="general", model_guess="Unknown")
+    selected = select_research_items([out_of_range, wrong_cat], config)
+    urls = {r["url"] for r in selected}
+    assert "u-cheap" not in urls   # filtered by price range
+    assert "u-phone" not in urls   # not a target research category
+
+
+def test_seen_state_alerted_roundtrip():
+    state = {"listings": {}, "last_run": {}, "alerted": {}}
+    assert seen_state.alerted_urls(state, "research") == set()
+    seen_state.mark_alerted(state, "research", ["a", "b"])
+    seen_state.mark_alerted(state, "research", ["b", "c"])
+    assert seen_state.alerted_urls(state, "research") == {"a", "b", "c"}
+    assert seen_state.alerted_urls(state, "action") == set()
+
+
+def test_both_modes_produce_independent_alerts():
+    config = load_config(None)
+    # Research stage from a comp-review row.
+    research = build_research_alerts([_review_row()], config)
+    # Action stage from a scanner result row.
+    action = build_alerts([{
+        "decision": "INSPECT", "title": "InspectCanon", "net_profit_eur": "130",
+        "net_roi_pct": "71", "location": "Vilnius", "asking_price_eur": "120",
+        "expected_resale_eur": "360", "url": "u3",
+    }])
+    assert research and action
+    assert "RESEARCH" in research[0] and "NO BUY DECISION" in research[0]
+    assert "INSPECT" in action[0] and "RESEARCH" not in action[0]
