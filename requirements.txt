@@ -1,5 +1,5 @@
-# The scanner itself uses only the Python 3 standard library — nothing to
-# install to run it.
+# The whole pipeline — scanner, collector, enrichment and notifier — uses only
+# the Python 3 standard library. There is nothing to install to run it.
 #
 # This package is only needed to run the test suite:
 #     pytest -q

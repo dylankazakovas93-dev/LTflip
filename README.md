@@ -4,10 +4,16 @@ A disciplined **resale-arbitrage decision engine** for Lithuanian local-pickup
 listings (camera lenses, guitar/music gear, Lego/collectibles, and other
 high-ticket items).
 
-It does **not** auto-buy anything and it does **not** scrape any website. You
-give it candidate listings in a CSV and it tells you which ones are worth
-driving out to **inspect in person**. The whole point is to avoid trash and only
-spend your time on high-confidence, inspectable opportunities.
+It does **not** auto-buy anything. At its core it takes candidate listings in a
+CSV and tells you which ones are worth driving out to **inspect in person**. The
+whole point is to avoid trash and only spend your time on high-confidence,
+inspectable opportunities.
+
+As of **v0.4** there is also an optional, polite collector that turns public
+Skelbiu.lt search pages into that CSV for you — see
+[The full pipeline](#the-full-pipeline-v04) below. The collector only reads
+public listing data, respects `robots.txt`, rate-limits itself, and never
+touches logins, CAPTCHAs, or personal/contact data.
 
 ## The rules it enforces
 
@@ -72,6 +78,94 @@ PASS             €  34.35 ROI   34.2% | Boss DD-7 Digital Delay pedal
 4. Run the scanner.
 5. Only inspect `PRIORITY_INSPECT` and `INSPECT` rows.
 6. **Never buy without testing the item in person.**
+
+## The full pipeline (v0.4)
+
+You can let the collector build the candidate CSV for you instead of typing
+listings by hand. The pipeline is four small, independent steps:
+
+```
+collector  ->  raw_listings.csv  ->  enrichment  ->  candidate_listings.csv  ->  scanner  ->  scan_results.csv  ->  notifier
+```
+
+```bash
+# 1. Collect public Skelbiu.lt search results listed in sources.json
+python3 collectors/skelbiu_collector.py --sources sources.json --output raw_listings.csv
+
+# 2. Classify + clean into a scanner-ready CSV (drops broken/repair listings)
+python3 enrich_candidates.py raw_listings.csv --output candidate_listings.csv
+
+# 3. Open candidate_listings.csv and fill comp_low_eur / comp_median_eur
+#    from eBay SOLD comps (see the warning below), then score:
+python3 listing_scanner.py candidate_listings.csv --config config.json --output scan_results.csv
+
+# 4. Print alerts for the INSPECT / PRIORITY_INSPECT rows
+python3 notifier.py scan_results.csv
+```
+
+Step 2 leaves the comp columns blank on purpose — the scanner needs **your**
+sold-comp numbers and will (correctly) reject everything until you add them.
+
+### What each step does
+
+- **`collectors/skelbiu_collector.py`** — reads search URLs from `sources.json`,
+  fetches each *public* page, and extracts `source, url, search_name, title,
+  description, location, asking_price_eur, posted_at, image URLs, collected_at`.
+  It de-duplicates by URL across runs, so the same listing is never written
+  twice. It is **stdlib-only** (no `requests`/`bs4` to install).
+- **`enrich_candidates.py`** — classifies each item as `lens` / `music_gear` /
+  `lego_collectible` / `general`, rejects obvious broken/repair listings early
+  using the same Lithuanian keyword list as the scanner, sets
+  `can_inspect_in_person = yes` only for allowed pickup cities (Vilnius/Kaunas),
+  estimates `photo_quality` from the number of images, and writes a CSV whose
+  columns exactly match `input_template.csv`.
+- **`listing_scanner.py`** — the existing decision engine (unchanged rules).
+- **`notifier.py`** — prints alert lines for `INSPECT` / `PRIORITY_INSPECT`
+  rows only, strongest first. It is a scaffold: it has clearly marked TODO stubs
+  for Telegram / Discord webhooks but needs no credentials to run today.
+
+### `sources.json`
+
+```json
+{
+  "user_agent": "LTFlipScanner/0.4 (+https://github.com/<you>/LTflip; validation bot; respects robots.txt)",
+  "request_delay_seconds": 2.0,
+  "cache_ttl_minutes": 360,
+  "max_pages_per_source": 1,
+  "sources": [
+    { "name": "objektyvas", "category": "lens", "url": "https://www.skelbiu.lt/skelbimai/?keywords=objektyvas" }
+  ]
+}
+```
+
+- `request_delay_seconds` — minimum gap between network requests (be polite).
+- `cache_ttl_minutes` — fetched pages are cached in `.cache/` and reused within
+  this window, so re-runs don't re-hit the site.
+- `max_pages_per_source` — keep this small; pagination is best-effort.
+- A source `url` may also be a local file path, which the collector reads
+  directly (no network). This is how the tests and offline demos work.
+
+### Assumptions about Skelbiu's page structure
+
+The parser assumes each listing on a results page is one container element with
+the CSS class `standard-list-item`, holding a title link
+(`standard-list-title`), a price (`standard-list-price`), a location
+(`standard-list-location`), an optional date (`standard-list-date`), and one or
+more `<img>` tags. **These class names are a best guess** and are centralised in
+the `SELECTORS` dict at the top of `collectors/skelbiu_collector.py` — if Skelbiu
+changes its markup, edit only that dict. The parser is tolerant: a card missing a
+field yields a blank rather than crashing. See
+`tests/fixtures/skelbiu_search_sample.html` for the exact shape it expects.
+
+### Legal / ToS caution
+
+This collector is a **validation aid, not a data harvester**. Before pointing it
+at any site: read and respect that site's Terms of Service and `robots.txt`,
+keep the request rate low, and use public pages only. Do **not** use it to
+bypass logins, paywalls, CAPTCHAs, or anti-bot measures, and do **not** collect
+phone numbers, names, or other personal/contact data. If a site's terms forbid
+automated access, collect candidates manually and skip step 1 — the rest of the
+pipeline works the same. You are responsible for how you use it.
 
 ## CSV fields
 

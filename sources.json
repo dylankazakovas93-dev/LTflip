@@ -1,0 +1,35 @@
+{
+  "_comment": "Public Skelbiu.lt search pages only. Decision-support bot, not an auto-buyer. Respects robots.txt, rate limits and site terms. Verify each URL in a browser first; Skelbiu's exact query format may change.",
+  "user_agent": "LTFlipScanner/0.4 (+https://github.com/dylankazakovas93-dev/LTflip; resale-validation bot; respects robots.txt)",
+  "request_delay_seconds": 2.0,
+  "cache_ttl_minutes": 360,
+  "cache_dir": ".cache",
+  "max_pages_per_source": 1,
+  "sources": [
+    {
+      "name": "objektyvas",
+      "category": "lens",
+      "url": "https://www.skelbiu.lt/skelbimai/?keywords=objektyvas"
+    },
+    {
+      "name": "Canon EF",
+      "category": "lens",
+      "url": "https://www.skelbiu.lt/skelbimai/?keywords=Canon+EF"
+    },
+    {
+      "name": "Sony E objektyvas",
+      "category": "lens",
+      "url": "https://www.skelbiu.lt/skelbimai/?keywords=Sony+E+objektyvas"
+    },
+    {
+      "name": "Boss pedalas",
+      "category": "music_gear",
+      "url": "https://www.skelbiu.lt/skelbimai/?keywords=Boss+pedalas"
+    },
+    {
+      "name": "LEGO sealed",
+      "category": "lego_collectible",
+      "url": "https://www.skelbiu.lt/skelbimai/?keywords=LEGO+sealed"
+    }
+  ]
+}
