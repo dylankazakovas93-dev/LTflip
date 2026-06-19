@@ -1,0 +1,22 @@
+{
+  "_comment": "Local Playwright navigator config. Runs on YOUR Mac, not the cloud. Public search pages only. Respects blocks: stops on CAPTCHA/login/anti-bot. No auto-buying, no messaging sellers, no personal/contact data.",
+  "headless": false,
+  "max_pages_per_source": 2,
+  "delay_between_pages_seconds": 3.0,
+  "max_total_listings": 200,
+  "allowed_sources": ["Skelbiu"],
+  "stop_on_block": true,
+  "user_agent": "LTFlipScanner/0.7 (+https://github.com/dylankazakovas93-dev/LTflip; personal local browser; respects blocks)",
+  "sources": [
+    { "source": "Skelbiu", "search_name": "objektyvas",        "query": "objektyvas",         "category": "lens",             "enabled": true,  "max_pages": 2 },
+    { "source": "Skelbiu", "search_name": "Canon EF",          "query": "Canon EF",           "category": "lens",             "enabled": true,  "max_pages": 2 },
+    { "source": "Skelbiu", "search_name": "Sony E objektyvas", "query": "Sony E objektyvas",  "category": "lens",             "enabled": true,  "max_pages": 2 },
+    { "source": "Skelbiu", "search_name": "Sigma objektyvas",  "query": "Sigma objektyvas",   "category": "lens",             "enabled": true,  "max_pages": 2 },
+    { "source": "Skelbiu", "search_name": "Tamron objektyvas", "query": "Tamron objektyvas",  "category": "lens",             "enabled": true,  "max_pages": 2 },
+    { "source": "Skelbiu", "search_name": "Fujifilm XF",       "query": "Fujifilm XF",        "category": "lens",             "enabled": true,  "max_pages": 2 },
+    { "source": "Skelbiu", "search_name": "Boss pedalas",      "query": "Boss pedalas",       "category": "music_gear",       "enabled": true,  "max_pages": 2 },
+    { "source": "Skelbiu", "search_name": "gitaros efektas",   "query": "gitaros efektas",    "category": "music_gear",       "enabled": true,  "max_pages": 2 },
+    { "source": "Skelbiu", "search_name": "LEGO sealed",       "query": "LEGO sealed",        "category": "lego_collectible", "enabled": true,  "max_pages": 2 },
+    { "source": "Skelbiu", "search_name": "LEGO Star Wars",    "query": "LEGO Star Wars",     "category": "lego_collectible", "enabled": true,  "max_pages": 2 }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "min_net_profit_eur": 100.0,
+  "min_net_roi": 0.6,
+  "min_gross_spread_pct": 1.0,
+  "max_purchase_price_eur": 250.0,
+  "allowed_locations": [
+    "vilnius",
+    "kaunas"
+  ],
+  "platform_fee_pct_default": 0.13,
+  "risk_reserve_pct_default": 0.1,
+  "min_liquidity_sold_count": 3,
+  "prefer_local_pickup_only": true,
+  "min_research_alert_score": 3.0,
+  "max_research_alerts_per_run": 10,
+  "allowed_research_categories": [
+    "lens",
+    "music_gear",
+    "lego_collectible"
+  ],
+  "min_asking_price_eur": 10.0,
+  "max_asking_price_eur": 1000.0
+}

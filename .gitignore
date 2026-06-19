@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Generated pipeline artifacts
+scan_results.csv
+raw_listings.csv
+candidate_listings.csv
+comp_review_queue.csv
+
+# Collector page cache + saved-state
+.cache/
+.seen_listings.json
