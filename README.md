@@ -15,7 +15,9 @@ report, new-vs-seen listing tracking, two-stage (research + action) alerts, and
 optional Telegram delivery — see [The full pipeline](#the-full-pipeline-v06)
 below. The collector only reads public listing data, respects `robots.txt`,
 rate-limits itself, and never touches logins, CAPTCHAs, or personal/contact
-data.
+data. **v0.7** adds an optional [local browser navigator](#local-browser-navigator-v07)
+that drives a real Chromium on your own Mac to search and paginate automatically
+(and stops the moment it hits a block).
 
 ## The rules it enforces
 
@@ -236,6 +238,75 @@ bypass logins, paywalls, CAPTCHAs, or anti-bot measures, and do **not** collect
 phone numbers, names, or other personal/contact data. If a site's terms forbid
 automated access, collect candidates manually and skip step 1 — the rest of the
 pipeline works the same. You are responsible for how you use it.
+
+## Local browser navigator (v0.7)
+
+If you don't want to scroll categories by hand, the navigator opens a **real
+local Chromium** on your Mac, walks each configured search, paginates, extracts
+listings, de-duplicates, and feeds the research-alert workflow — you only review
+the alerts, not every listing. This runs **on your machine, not in the cloud.**
+
+### Install (one-time)
+
+```bash
+python3 -m pip install -r requirements.txt
+python3 -m playwright install chromium
+```
+
+Playwright is only needed for this navigator; the core CSV pipeline and the test
+suite stay standard-library only.
+
+### Configure your searches
+
+Define search terms once in `browser_sources.json` (already seeded with
+`objektyvas`, `Canon EF`, `Sony E objektyvas`, `Sigma objektyvas`,
+`Tamron objektyvas`, `Fujifilm XF`, `Boss pedalas`, `gitaros efektas`,
+`LEGO sealed`, `LEGO Star Wars`). Each source has:
+
+```json
+{ "source": "Skelbiu", "search_name": "Canon EF", "query": "Canon EF",
+  "category": "lens", "enabled": true, "max_pages": 2 }
+```
+
+Use `"query"` to have URLs built for you, or `"url"` for an explicit search page.
+Top-level knobs:
+
+- `headless` — `false` by default (you watch the browser work); set `true` to hide it.
+- `max_pages_per_source` — default page cap (a source's own `max_pages` overrides it).
+- `delay_between_pages_seconds` — polite pause between page loads.
+- `max_total_listings` — global safety cap across all searches.
+- `allowed_sources` — only navigate these sources.
+- `stop_on_block` — stop the whole run the moment a block is detected (default `true`).
+
+### Run the whole local scan
+
+```bash
+python3 run_local_scan.py
+```
+
+That navigates every enabled search → `raw_listings.csv`, enriches →
+`candidate_listings.csv` + `comp_review_queue.csv`, and fires **research
+alerts**. There is **no buy decision here**: comps are still blank, so the
+scanner stage is intentionally skipped. Fill comps, then run `listing_scanner.py`
+and `notifier.py --mode action` separately.
+
+```bash
+# Re-run enrichment + research alerts on the last browse without opening a browser:
+python3 run_local_scan.py --dry-run
+
+# Or just the navigator:
+python3 browser_navigator.py --config browser_sources.json --output raw_listings.csv
+```
+
+### It stops at blocks — it never bypasses them
+
+If a page shows a CAPTCHA, login wall, "checking your browser", access-denied, or
+similar, the navigator **stops and reports** the reason instead of trying to get
+around it. It never bypasses CAPTCHA/login/paywalls/anti-bot measures, never
+auto-buys or messages sellers, and only reads the public listing card (title,
+price, location, photo, link) — **never** phone numbers, emails, or other
+personal/contact data. Respect each site's Terms of Service; you are responsible
+for how you use it.
 
 ## CSV fields
 

@@ -1,6 +1,13 @@
-# The whole pipeline — scanner, collector, enrichment and notifier — uses only
+# The core pipeline — scanner, collector, enrichment and notifier — uses only
 # the Python 3 standard library. There is nothing to install to run it.
 #
-# This package is only needed to run the test suite:
+# Needed to run the test suite:
 #     pytest -q
 pytest>=7.0
+
+# v0.7 LOCAL browser navigator only (browser_navigator.py / run_local_scan.py).
+# NOT needed for the core CSV pipeline or the test suite. Install on your Mac,
+# then download the browser once:
+#     python3 -m pip install -r requirements.txt
+#     python3 -m playwright install chromium
+playwright>=1.40
