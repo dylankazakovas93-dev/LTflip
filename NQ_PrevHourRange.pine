@@ -15,8 +15,22 @@ indicator("NQ Prev Hour Range x1.5", overlay = true)
 // ---- Inputs -----------------------------------------------------------------
 showBox  = input.bool(true,  "Show box")
 mult     = input.float(1.5,  "Range multiplier", minval = 0, step = 0.1)
+posInput = input.string("Top Left", "Box position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"])
 txtColor = input.color(color.white, "Text color")
 bgColor  = input.color(color.new(color.blue, 0), "Box background")
+
+// Map the friendly dropdown choice to a Pine table position constant.
+boxPos = switch posInput
+    "Top Left"      => position.top_left
+    "Top Center"    => position.top_center
+    "Top Right"     => position.top_right
+    "Middle Left"   => position.middle_left
+    "Middle Center" => position.middle_center
+    "Middle Right"  => position.middle_right
+    "Bottom Left"   => position.bottom_left
+    "Bottom Center" => position.bottom_center
+    "Bottom Right"  => position.bottom_right
+    => position.top_left
 
 // ---- Pull the previous completed hourly candle ------------------------------
 // [1] = the last fully closed 1H bar; lookahead_on makes it non-repainting.
@@ -26,7 +40,7 @@ prevRange = prevHigh - prevLow
 distance  = prevRange * mult
 
 // ---- Draw the box -----------------------------------------------------------
-var table box = table.new(position.top_left, 1, 2, border_width = 1, border_color = color.new(color.black, 50))
+var table box = table.new(boxPos, 1, 2, border_width = 1, border_color = color.new(color.black, 50))
 
 if barstate.islast and showBox
     table.cell(box, 0, 0, "Prev 1H Range x" + str.tostring(mult, "#.#"), text_color = txtColor, bgcolor = bgColor, text_size = size.normal)
