@@ -1,0 +1,33 @@
+//@version=6
+// =============================================================================
+// NQ Previous Hourly Range x1.5
+// -----------------------------------------------------------------------------
+// Toggle on to show a box in the TOP-LEFT of the chart that displays the
+// previous COMPLETED 1-hour candle's range (high - low) multiplied by 1.5,
+// expressed as a distance in points.
+//
+// The 1H reference is fixed via request.security, so the value is the same no
+// matter what timeframe the chart is on (1m, 5m, etc.). Designed for NQ, where
+// price is quoted directly in points (1 point = 1.0 price unit).
+// =============================================================================
+indicator("NQ Prev Hour Range x1.5", overlay = true)
+
+// ---- Inputs -----------------------------------------------------------------
+showBox  = input.bool(true,  "Show box")
+mult     = input.float(1.5,  "Range multiplier", minval = 0, step = 0.1)
+txtColor = input.color(color.white, "Text color")
+bgColor  = input.color(color.new(color.blue, 0), "Box background")
+
+// ---- Pull the previous completed hourly candle ------------------------------
+// [1] = the last fully closed 1H bar; lookahead_on makes it non-repainting.
+[prevHigh, prevLow] = request.security(syminfo.tickerid, "60", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+prevRange = prevHigh - prevLow
+distance  = prevRange * mult
+
+// ---- Draw the box -----------------------------------------------------------
+var table box = table.new(position.top_left, 1, 2, border_width = 1, border_color = color.new(color.black, 50))
+
+if barstate.islast and showBox
+    table.cell(box, 0, 0, "Prev 1H Range x" + str.tostring(mult, "#.#"), text_color = txtColor, bgcolor = bgColor, text_size = size.normal)
+    table.cell(box, 0, 1, str.tostring(distance, "#.##") + " pts", text_color = txtColor, bgcolor = color.new(bgColor, 15), text_size = size.large)
